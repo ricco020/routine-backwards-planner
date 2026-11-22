@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Routine builder with time-blindness buffer: work back from the time you must leave</title>
+<meta name="description" content="Free routine builder that plans backwards: list the steps of your morning or evening routine with how long you think each takes, set the time you must be done, and get the clock time to start every step, with a buffer you choose. Log how long steps really took and it suggests the buffer your own numbers call for. Print and CSV. Runs in your browser.">
+<style>
+:root{--ink:#1d1a24;--paper:#f3efe6;--navy:#23395b;--rust:#b2542b;--rule:#d8d0bd}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 Georgia,"Iowan Old Style",serif}
+main{max-width:800px;margin:0 auto;padding:36px 18px 60px}
+h1{font-size:1.9rem;line-height:1.15;margin:0 0 .4em;color:var(--navy)}
+h2{font-size:1.2rem;margin:1.8em 0 .5em;color:var(--navy)}
+a{color:var(--navy)}
+.box{background:#fff;border:1px solid var(--rule);border-radius:8px;padding:14px}
+.stp{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 34px;gap:8px;margin-bottom:8px;align-items:end}
+.fund{display:grid;grid-template-columns:2fr 1.2fr 1.2fr 34px;gap:8px;margin-bottom:8px;align-items:end}
+.stp label,.fund label,.row label{font-size:.85rem;display:flex;flex-direction:column;gap:3px;min-width:0}
+input,select{font:inherit;padding:7px;border:1px solid var(--rule);border-radius:5px;background:#fff;width:100%;min-width:0}
+.x{font:inherit;border:1px solid var(--rule);background:#fff;border-radius:5px;height:40px;cursor:pointer;color:var(--rust)}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px}
+button.add,.dl button{font:inherit;font-weight:bold;padding:9px 14px;border:2px solid var(--navy);border-radius:6px;background:#fff;color:var(--navy);cursor:pointer}
+.dl{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.dl button.main{background:var(--navy);color:#fff}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0}
+.sum div{background:#fff;border-top:4px solid var(--rust);padding:10px 14px;border-radius:4px}
+.sum b{display:block;font-size:1.2rem;color:var(--navy)}
+.warn{background:#fbe9e1;border-left:4px solid var(--rust);padding:8px 12px;border-radius:4px;margin:10px 0}
+.res{width:100%;border-collapse:collapse;background:#fff;font-size:.93rem}
+.res th,.res td{border-bottom:1px solid var(--rule);padding:6px 8px;text-align:right}
+.res th:first-child,.res td:first-child{text-align:left}
+.scroll{overflow-x:auto}
+.ok{color:#2f6b3a;font-weight:bold}.bad{color:var(--rust);font-weight:bold}
+@media print{.box,.dl,.add,.np{display:none}body{background:#fff}}
+small{color:#5f5a66}
+@media(max-width:620px){.stp{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;padding-bottom:8px;border-bottom:1px solid var(--rule)}.stp label:first-child,.stp .x{grid-column:1/-1}.stp .x{height:34px}.stp{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 34px;gap:8px;margin-bottom:8px;align-items:end}
+.fund{grid-template-columns:1fr 1fr;padding-bottom:8px;border-bottom:1px solid var(--rule)}.fund label:first-child,.fund .x{grid-column:1/-1}.fund .x{height:34px}.res{font-size:.85rem}.res th,.res td{padding:5px 4px}}
+</style>
+<link rel="canonical" href="https://ricco020.github.io/routine-backwards-planner/">
+</head>
+<body>
+<main>
+<h1>Routine builder: start times worked back from when you must be done</h1>
+<p>Most routines fail at the start, not the end: "I need to leave at 8:15" does not say when the shower has to begin. List the steps with the minutes you think each one takes, enter the time you must be done, and the planner gives the clock time to start every step, working backwards. A buffer pads each step because guesses tend to run short. Log how long a few steps really took and it shows the buffer your own numbers call for, instead of a rule of thumb.</p>
+<div class="box">
+<div class="row">
+<label>Routine<input type="text" id="name" maxlength="60"></label>
+<label>Done by<input type="time" id="end"></label>
+<label>Buffer per step (%)<input type="number" id="buf" min="0" max="300" step="1"></label>
+</div>
+<p><b>Steps, in order</b> <small>(your guess in minutes, and "really took" after a timed run if you have it)</small></p>
+<div id="stps"></div>
+<button class="add" id="adds" type="button">+ Add a step</button>
+</div>
+<div id="out"></div>
+<div class="dl"><button class="main" id="csv" type="button">Download the routine (CSV)</button><button id="pr" type="button">Print this routine</button></div>
+<h2>How the start times are worked out</h2>
+<p>Each step gets its guess plus the buffer, rounded up to a whole minute (a 7-minute step with 25 % becomes 9 minutes). The last step ends at the "done by" time, the step before it ends where the last one starts, and so on up to the first step, whose start is the time to begin. If the routine is long enough to start before midnight, the start is marked "the day before".</p>
+<h2>Where the suggested buffer comes from</h2>
+<p>For the steps where you filled in "really took", the planner adds up the real minutes and the guessed minutes. If the real total is 1.3 times the guess, the suggested buffer is 30 %. It only uses your own timed runs, so it means more after a few days than after one. When your guesses are longer than reality, it suggests 0 %.</p>
+<h2>Limits</h2>
+<p>A buffer per step assumes the overrun is spread across steps. If one step always runs late (the step with a screen in it), give that step a longer guess instead. This is a planning tool, not a treatment or a medical tool. Nothing is sent anywhere: the routine is stored in this browser only.</p>
+<h2>Keep it on paper</h2>
+<p>The routine checklist page, along with a daily page with time blocks, a brain dump and a dopamine menu of quick resets, is part of an <a href="https://tidysheets.shop/p/adhd-daily-planner-printable">ADHD-friendly daily planner</a> to print.</p>
+<p><small>Free tool, no account, no tracking. Source on <a href="https://github.com/ricco020/routine-backwards-planner">GitHub</a>. More free planners on <a href="https://ricco020.github.io/">ricco020.github.io</a>.</small></p>
+</main>
+<script>
+(function(g){
+function hm(s){const[h,m]=String(s).split(':').map(Number);return h*60+m}
+function fmt(n){const d=Math.floor(n/1440),m=((n%1440)+1440)%1440;return{time:String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'),day:d}}
+function routine(o){
+ const b=Math.max(0,+o.buffer||0),st=o.steps.filter(s=>+s.min>0);
+ const pad=st.map(s=>Math.ceil(+s.min*(1+b/100)-1e-9));
+ const end=hm(o.end);let t=end;const out=[];
+ for(let i=st.length-1;i>=0;i--){const e=t;t-=pad[i];out.unshift({name:st[i].name,est:+st[i].min,planned:pad[i],start:fmt(t),end:fmt(e)})}
+ const est=st.reduce((a,s)=>a+ +s.min,0),tot=pad.reduce((a,x)=>a+x,0);
+ const cal=st.filter(s=>+s.actual>0);let factor=null,suggested=null;
+ if(cal.length){const ce=cal.reduce((a,s)=>a+ +s.min,0),ca=cal.reduce((a,s)=>a+ +s.actual,0);factor=ca/ce;suggested=Math.max(0,Math.ceil((factor-1)*100-1e-9))}
+ return{steps:out,estimate:est,planned:tot,startAt:fmt(end-tot),factor,suggested}}
+g.routine=routine;if(typeof module!=='undefined')module.exports={routine,hm,fmt};
+})(typeof window!=='undefined'?window:globalThis);
+
+</script>
+<script>
+const $=id=>document.getElementById(id),K='routine-backwards-planner-v1';
+let st={name:'School-day morning',end:'08:15',buf:25,s:[['Get up, water, meds',5,''],['Shower',12,''],['Get dressed',8,''],['Breakfast',15,''],['Teeth, hair',7,''],['Shoes, coat, bag check',6,'']]};
+try{const x=JSON.parse(localStorage.getItem(K));if(x&&x.s)st=x}catch(e){}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const tm=f=>{const[h,m]=f.time.split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+(h<12?' am':' pm')+(f.day<0?' (the day before)':'')};
+function rows(){$('stps').innerHTML=st.s.map((s,i)=>`<div class="stp"><label>Step<input data-s="${i}" data-k="0" value="${esc(s[0])}"></label><label>Guess (min)<input type="number" min="0" data-s="${i}" data-k="1" value="${s[1]}"></label><label>Really took<input type="number" min="0" data-s="${i}" data-k="2" value="${s[2]}"></label><button class="x" data-ds="${i}" type="button" aria-label="Remove">&times;</button></div>`).join('')}
+function draw(){
+ try{localStorage.setItem(K,JSON.stringify(st))}catch(e){}
+ if(!st.end){$('out').innerHTML='<div class="warn">Enter the time you must be done.</div>';window._csv='';return}
+ const r=routine({end:st.end,buffer:st.buf,steps:st.s.map(s=>({name:s[0],min:s[1],actual:s[2]}))});
+ if(!r.steps.length){$('out').innerHTML='<div class="warn">Add at least one step with minutes.</div>';window._csv='';return}
+ let o=`<div class="sum"><div>Start at<b>${tm(r.startAt)}</b><small>to be done by ${tm({time:st.end,day:0})}</small></div><div>Planned time<b>${r.planned} min</b><small>${r.estimate} min of guesses + ${r.planned-r.estimate} min of buffer</small></div><div>Buffer your timings suggest<b>${r.suggested===null?'no timed steps yet':r.suggested+' %'}</b><small>${r.factor===null?'fill "really took" after a timed run':'steps took '+r.factor.toFixed(2)+' times your guess'}</small></div></div>`;
+ if(r.suggested!==null&&r.suggested>(+st.buf||0))o+=`<div class="warn">Your timed steps ran ${r.suggested} % over the guesses, more than the ${+st.buf||0} % buffer: raise the buffer or the guesses.</div>`;
+ o+=`<h2>${esc(st.name||'Your routine')}</h2><div class="scroll"><table class="res"><tr><th>Step</th><th>Start</th><th>Planned</th><th>Done</th></tr>`+r.steps.map(s=>`<tr><td>${esc(s.name||'Step')}</td><td>${tm(s.start)}</td><td>${s.planned} min</td><td>&#9744;</td></tr>`).join('')+`<tr><td><b>Done by</b></td><td><b>${tm(r.steps[r.steps.length-1].end)}</b></td><td>${r.planned} min</td><td></td></tr></table></div>`;
+ $('out').innerHTML=o;
+ const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+ window._csv=['Step,Start,End,Guess (min),Planned (min)'].concat(r.steps.map(s=>[q(s.name),s.start.time,s.end.time,s.est,s.planned].join(','))).join('\n');
+}
+document.addEventListener('input',e=>{const t=e.target;
+ if(t.id==='name')st.name=t.value;else if(t.id==='end')st.end=t.value;else if(t.id==='buf')st.buf=t.value;else if(t.dataset.s!==undefined)st.s[t.dataset.s][t.dataset.k]=t.value;else return;draw()});
+document.addEventListener('click',e=>{const t=e.target;
+ if(t.id==='adds'){st.s.push(['',5,'']);rows();draw()}else if(t.dataset.ds!==undefined){st.s.splice(+t.dataset.ds,1);rows();draw()}
+ else if(t.id==='pr')window.print();
+ else if(t.id==='csv'&&window._csv){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([window._csv],{type:'text/csv'}));a.download='routine.csv';a.click()}});
+$('name').value=st.name;$('end').value=st.end;$('buf').value=st.buf;rows();draw();
+</script>
+</body>
+</html>
